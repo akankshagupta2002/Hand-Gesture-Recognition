@@ -58,31 +58,19 @@ https://www.kaggle.com/datasets/gti-upm/leapgestrecog
 
 The dataset contains 10 gesture classes:
 
-
-
 | Class | Gesture |
-
 |---|---|
+| `01_palm` | Palm |
+| `02_l` | L |
+| `03_fist` | Fist |
+| `04_fist_moved` | Fist Moved |
+| `05_thumb` | Thumb |
+| `06_index` | Index |
+| `07_ok` | OK |
+| `08_palm_moved` | Palm Moved |
+| `09_c` | C |
+| `10_down` | Down |
 
-| 01\_palm | Palm |
-
-| 02\_l | L |
-
-| 03\_fist | Fist |
-
-| 04\_fist\_moved | Fist Moved |
-
-| 05\_thumb | Thumb |
-
-| 06\_index | Index |
-
-| 07\_ok | OK |
-
-| 08\_palm\_moved | Palm Moved |
-
-| 09\_c | C |
-
-| 10\_down | Down |
 
 
 
