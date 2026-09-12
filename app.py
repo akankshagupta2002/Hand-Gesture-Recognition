@@ -1,39 +1,36 @@
+import os
 import json
-from pathlib import Path
-
 import cv2
 import joblib
-import mediapipe as mp
 import numpy as np
 import streamlit as st
+import mediapipe as mp
+import tensorflow as tf
 from PIL import Image
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
 
 # ============================================================
-# CONFIGURATION
+# PATHS
 # ============================================================
 
-LANDMARK_MODEL_PATH = Path(
-    "models/hand_gesture_landmark_rf.joblib"
+LANDMARK_MODEL_PATH = os.path.join(
+    "models", "hand_gesture_landmark_rf.joblib"
 )
 
-LANDMARK_CLASSES_PATH = Path(
-    "models/landmark_class_names.json"
+LANDMARK_CLASSES_PATH = os.path.join(
+    "models", "landmark_class_names.json"
 )
 
-HAND_LANDMARKER_PATH = Path(
-    "hand_landmarker.task"
+MOBILENET_MODEL_PATH = os.path.join(
+    "models", "hand_gesture_mobilenetv2_improved.keras"
 )
 
-# Original Task 5 model is kept as an optional IR fallback
-IR_MODEL_PATH = Path(
-    "models/hand_gesture_mobilenetv2_improved.keras"
+MOBILENET_CLASSES_PATH = os.path.join(
+    "models", "class_names.json"
 )
 
-IR_CLASS_NAMES_PATH = Path(
-    "models/class_names.json"
-)
-
-IR_IMG_SIZE = (160, 160)
+HAND_LANDMARKER_PATH = "hand_landmarker.task"
 
 
 # ============================================================
@@ -43,321 +40,317 @@ IR_IMG_SIZE = (160, 160)
 st.set_page_config(
     page_title="Hand Gesture Recognition",
     page_icon="✋",
-    layout="centered"
+    layout="wide"
 )
 
 
 # ============================================================
-# LOAD LANDMARK MODEL
+# LOAD RANDOM FOREST LANDMARK MODEL
 # ============================================================
 
 @st.cache_resource
 def load_landmark_model():
-
-    return joblib.load(
-        LANDMARK_MODEL_PATH
-    )
+    return joblib.load(LANDMARK_MODEL_PATH)
 
 
 @st.cache_data
-def load_landmark_class_names():
-
-    with open(
-        LANDMARK_CLASSES_PATH,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
+def load_landmark_classes():
+    with open(LANDMARK_CLASSES_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 landmark_model = load_landmark_model()
-
-landmark_class_names = (
-    load_landmark_class_names()
-)
+landmark_class_names = load_landmark_classes()
 
 
 # ============================================================
-# LOAD ORIGINAL IR MODEL
+# LOAD MOBILE NET V2 MODEL
+# Used as fallback for LeapGestRecog IR-style images
 # ============================================================
 
 @st.cache_resource
-def load_ir_model():
-
-    if not IR_MODEL_PATH.exists():
-        return None
-
-    try:
-        import tensorflow as tf
-
-        return tf.keras.models.load_model(
-            IR_MODEL_PATH
-        )
-
-    except Exception:
-        return None
+def load_mobilenet_model():
+    return tf.keras.models.load_model(MOBILENET_MODEL_PATH)
 
 
 @st.cache_data
-def load_ir_class_names():
-
-    if not IR_CLASS_NAMES_PATH.exists():
-        return []
-
-    with open(
-        IR_CLASS_NAMES_PATH,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
+def load_mobilenet_classes():
+    with open(MOBILENET_CLASSES_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-ir_model = load_ir_model()
-ir_class_names = load_ir_class_names()
+mobilenet_model = load_mobilenet_model()
+mobilenet_class_names = load_mobilenet_classes()
 
 
 # ============================================================
-# LOAD MEDIAPIPE HAND LANDMARKER
+# MEDIA PIPE HAND LANDMARKER
 # ============================================================
 
 @st.cache_resource
-def load_hand_detector():
+def load_hand_landmarker():
 
-    base_options = (
-        mp.tasks.BaseOptions(
-            model_asset_path=str(
-                HAND_LANDMARKER_PATH
-            )
-        )
+    BaseOptions = mp.tasks.BaseOptions
+    VisionRunningMode = mp.tasks.vision.RunningMode
+
+    options = mp.tasks.vision.HandLandmarkerOptions(
+        base_options=BaseOptions(
+            model_asset_path=HAND_LANDMARKER_PATH
+        ),
+        running_mode=VisionRunningMode.IMAGE,
+        num_hands=1,
+        min_hand_detection_confidence=0.5,
+        min_hand_presence_confidence=0.5,
+        min_tracking_confidence=0.5
     )
 
-    options = (
-        mp.tasks.vision.HandLandmarkerOptions(
-            base_options=base_options,
-            running_mode=(
-                mp.tasks.vision.RunningMode.IMAGE
-            ),
-            num_hands=1,
-            min_hand_detection_confidence=0.50,
-            min_hand_presence_confidence=0.50
-        )
-    )
-
-    return (
-        mp.tasks.vision.HandLandmarker
-        .create_from_options(options)
+    return mp.tasks.vision.HandLandmarker.create_from_options(
+        options
     )
 
 
-hand_detector = load_hand_detector()
+hand_landmarker = load_hand_landmarker()
 
 
 # ============================================================
-# EXTRACT NORMALIZED HAND LANDMARKS
+# LANDMARK NORMALIZATION
+# Same normalization used during Random Forest training
 # ============================================================
 
-def extract_landmarks(image):
+def normalize_landmarks(hand_landmarks):
 
-    rgb_image = np.array(
-        image.convert("RGB")
-    )
-
-    mp_image = mp.Image(
-        image_format=mp.ImageFormat.SRGB,
-        data=rgb_image
-    )
-
-    detection_result = (
-        hand_detector.detect(mp_image)
-    )
-
-    if not detection_result.hand_landmarks:
-
-        return None, None
-
-    hand = (
-        detection_result.hand_landmarks[0]
-    )
-
-    # Wrist = origin
-    wrist_x = hand[0].x
-    wrist_y = hand[0].y
-    wrist_z = hand[0].z
-
-    landmarks = []
-
-    for point in hand:
-
-        x = point.x - wrist_x
-        y = point.y - wrist_y
-        z = point.z - wrist_z
-
-        landmarks.extend([
-            x,
-            y,
-            z
-        ])
-
-    landmarks = np.array(
-        landmarks,
+    points = np.array(
+        [[lm.x, lm.y, lm.z] for lm in hand_landmarks],
         dtype=np.float32
     )
 
-    # Same normalization used during training
-    max_value = np.max(
-        np.abs(landmarks)
-    )
+    # Wrist as origin
+    wrist = points[0].copy()
+    points = points - wrist
+
+    # Scale normalization
+    max_value = np.max(np.abs(points))
 
     if max_value > 0:
+        points = points / max_value
 
-        landmarks /= max_value
-
-    return landmarks, hand
+    return points.flatten().reshape(1, -1)
 
 
 # ============================================================
-# IR HAND DETECTION FALLBACK
+# MEDIA PIPE LANDMARK EXTRACTION
 # ============================================================
 
-def detect_ir_hand(image):
+def extract_landmarks(image_rgb):
 
-    rgb_image = np.array(
-        image.convert("RGB")
+    mp_image = mp.Image(
+        image_format=mp.ImageFormat.SRGB,
+        data=image_rgb
     )
 
+    result = hand_landmarker.detect(mp_image)
+
+    if not result.hand_landmarks:
+        return None
+
+    hand = result.hand_landmarks[0]
+
+    features = normalize_landmarks(hand)
+
+    return features
+
+
+# ============================================================
+# DETECT IR-STYLE LEAPGESTRECOG IMAGE
+# ============================================================
+
+def is_ir_style_image(image_rgb):
+
     gray = cv2.cvtColor(
-        rgb_image,
+        image_rgb,
         cv2.COLOR_RGB2GRAY
     )
 
-    mean_intensity = np.mean(gray)
-
-    bright_ratio = np.mean(
-        gray > 180
+    mean_value = float(np.mean(gray))
+    bright_ratio = float(
+        np.mean(gray > 180)
     )
 
-    infrared_like = (
-        mean_intensity < 100
-        and bright_ratio > 0.03
-        and bright_ratio < 0.35
+    # LeapGestRecog images generally have
+    # bright hand region on dark background.
+    return (
+        mean_value < 120
+        and bright_ratio > 0.08
     )
 
-    if not infrared_like:
 
-        return False
+# ============================================================
+# PREPARE IMAGE FOR MOBILE NET V2
+# ============================================================
 
-    _, binary = cv2.threshold(
+def prepare_mobilenet_image(image_rgb):
+
+    gray = cv2.cvtColor(
+        image_rgb,
+        cv2.COLOR_RGB2GRAY
+    )
+
+    resized = cv2.resize(
         gray,
-        180,
-        255,
-        cv2.THRESH_BINARY
+        (160, 160)
     )
 
-    kernel = np.ones(
-        (5, 5),
-        np.uint8
+    # Convert grayscale to 3 channels
+    rgb_like = np.stack(
+        [resized, resized, resized],
+        axis=-1
     )
 
-    binary = cv2.morphologyEx(
-        binary,
-        cv2.MORPH_OPEN,
-        kernel
+    rgb_like = rgb_like.astype(np.float32)
+
+    rgb_like = preprocess_input(
+        rgb_like
     )
 
-    binary = cv2.morphologyEx(
-        binary,
-        cv2.MORPH_CLOSE,
-        kernel
+    return np.expand_dims(
+        rgb_like,
+        axis=0
     )
-
-    contours, _ = cv2.findContours(
-        binary,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    if not contours:
-
-        return False
-
-    largest_contour = max(
-        contours,
-        key=cv2.contourArea
-    )
-
-    contour_area = cv2.contourArea(
-        largest_contour
-    )
-
-    image_area = (
-        gray.shape[0]
-        * gray.shape[1]
-    )
-
-    area_ratio = (
-        contour_area
-        / image_area
-    )
-
-    x, y, w, h = cv2.boundingRect(
-        largest_contour
-    )
-
-    aspect_ratio = (
-        w / float(h)
-    )
-
-    if (
-        area_ratio > 0.03
-        and area_ratio < 0.60
-        and aspect_ratio > 0.20
-        and aspect_ratio < 4.0
-    ):
-
-        return True
-
-    return False
 
 
 # ============================================================
-# TITLE
+# MOBILE NET PREDICTION
 # ============================================================
 
-st.title(
-    "✋ Hand Gesture Recognition"
-)
+def predict_with_mobilenet(image_rgb):
+
+    input_image = prepare_mobilenet_image(
+        image_rgb
+    )
+
+    probabilities = mobilenet_model.predict(
+        input_image,
+        verbose=0
+    )[0]
+
+    top_indices = np.argsort(
+        probabilities
+    )[::-1][:3]
+
+    predictions = []
+
+    for index in top_indices:
+
+        predictions.append(
+            (
+                mobilenet_class_names[index],
+                float(probabilities[index])
+            )
+        )
+
+    return predictions
+
+
+# ============================================================
+# RANDOM FOREST PREDICTION
+# ============================================================
+
+def predict_with_landmarks(features):
+
+    probabilities = landmark_model.predict_proba(
+        features
+    )[0]
+
+    top_indices = np.argsort(
+        probabilities
+    )[::-1][:3]
+
+    predictions = []
+
+    for index in top_indices:
+
+        predictions.append(
+            (
+                landmark_class_names[index],
+                float(probabilities[index])
+            )
+        )
+
+    return predictions
+
+
+# ============================================================
+# DISPLAY PREDICTIONS
+# ============================================================
+
+def display_predictions(predictions):
+
+    if not predictions:
+        return
+
+    gesture = predictions[0][0]
+    confidence = predictions[0][1]
+
+    st.success(
+        f"✋ Hand detected!\n\n"
+        f"### {gesture}"
+    )
+
+    st.metric(
+        "Model Probability",
+        f"{confidence * 100:.2f}%"
+    )
+
+    st.markdown("### Top 3 Predictions")
+
+    for name, score in predictions:
+
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            st.write(name)
+
+        with col2:
+            st.write(
+                f"{score * 100:.2f}%"
+            )
+
+        st.progress(
+            min(max(score, 0.0), 1.0)
+        )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("✋ Hand Gesture Recognition")
 
 st.write(
-    "Upload a hand gesture image and "
-    "the trained landmark model will "
-    "predict the gesture."
+    "Upload a hand image to recognize the gesture "
+    "using MediaPipe hand landmarks and machine learning."
 )
 
 st.info(
-    "Hand Detection → 21 Landmarks → "
-    "Random Forest Classification | "
-    "8 Static Gestures + Motion Classes"
+    "For normal RGB hand images, the application uses "
+    "MediaPipe 21 hand landmarks + Random Forest. "
+    "LeapGestRecog IR-style images use the MobileNetV2 "
+    "evaluation model as a fallback."
 )
 
 
 # ============================================================
-# FILE UPLOADER
+# UPLOAD
 # ============================================================
 
 uploaded_file = st.file_uploader(
-    "Upload a hand gesture image",
-    type=[
-        "jpg",
-        "jpeg",
-        "png"
-    ]
+    "Upload an image",
+    type=["jpg", "jpeg", "png"]
 )
 
 
 # ============================================================
-# PREDICTION
+# PROCESS IMAGE
 # ============================================================
 
 if uploaded_file is not None:
@@ -366,237 +359,96 @@ if uploaded_file is not None:
         uploaded_file
     ).convert("RGB")
 
+    image_rgb = np.array(image)
+
+    st.markdown("### Uploaded Image")
+
     st.image(
         image,
-        caption="Uploaded Image",
-        width="stretch"
+        width=500
     )
 
-    if st.button(
-        "🔍 Predict Gesture",
-        type="primary"
-    ):
+    st.markdown("---")
+
+    # --------------------------------------------------------
+    # FIRST: IR DATASET IMAGE
+    # --------------------------------------------------------
+
+    if is_ir_style_image(image_rgb):
+
+        st.info(
+            "LeapGestRecog-style image detected. "
+            "Using MobileNetV2 image classifier."
+        )
+
+        predictions = predict_with_mobilenet(
+            image_rgb
+        )
+
+        display_predictions(
+            predictions
+        )
+
+        st.caption(
+            "Model: MobileNetV2 | "
+            "Primary Task 5 evaluation model"
+        )
+
+    # --------------------------------------------------------
+    # SECOND: NORMAL RGB IMAGE
+    # --------------------------------------------------------
+
+    else:
+
+        features = extract_landmarks(
+            image_rgb
+        )
 
         # ----------------------------------------------------
-        # STEP 1: MediaPipe hand detection
+        # HAND NOT FOUND
         # ----------------------------------------------------
 
-        with st.spinner(
-            "Checking for a hand..."
-        ):
+        if features is None:
 
-            landmarks, hand = (
-                extract_landmarks(image)
+            st.error(
+                "❌ This is not a hand"
+            )
+
+            st.warning(
+                "Please upload an image containing "
+                "a clearly visible hand."
             )
 
         # ----------------------------------------------------
-        # NORMAL RGB HAND IMAGE
+        # HAND FOUND
         # ----------------------------------------------------
 
-        if landmarks is not None:
+        else:
 
             st.success(
                 "✋ Hand detected!"
             )
 
-            # ------------------------------------------------
-            # Landmark classification
-            # ------------------------------------------------
-
-            with st.spinner(
-                "Analyzing hand landmarks..."
-            ):
-
-                input_data = (
-                    landmarks.reshape(1, -1)
-                )
-
-                prediction = (
-                    landmark_model.predict(
-                        input_data
-                    )[0]
-                )
-
-                probabilities = (
-                    landmark_model.predict_proba(
-                        input_data
-                    )[0]
-                )
-
-            predicted_index = int(
-                prediction
+            predictions = predict_with_landmarks(
+                features
             )
 
-            predicted_class = (
-                landmark_class_names[
-                    predicted_index
-                ]
+            display_predictions(
+                predictions
             )
 
-            confidence = float(
-                probabilities[
-                    predicted_index
-                ]
+            st.caption(
+                "Model: MediaPipe 21 Landmarks + "
+                "Random Forest"
             )
 
-            # ------------------------------------------------
-            # Main result
-            # ------------------------------------------------
-
-            st.success(
-                f"✋ Predicted Gesture: "
-                f"**{predicted_class}**"
+            st.info(
+                "Note: A single uploaded image represents "
+                "a static frame. Moving gestures such as "
+                "Palm Moved and Fist Moved are distinguished "
+                "using temporal motion detection in the "
+                "real-time webcam application."
             )
-
-            st.metric(
-                "Confidence",
-                f"{confidence * 100:.2f}%"
-            )
-
-            # ------------------------------------------------
-            # Top 3
-            # ------------------------------------------------
-
-            st.subheader(
-                "Top 3 Predictions"
-            )
-
-            top_indices = np.argsort(
-                probabilities
-            )[-3:][::-1]
-
-            for rank, idx in enumerate(
-                top_indices,
-                start=1
-            ):
-
-                gesture = (
-                    landmark_class_names[idx]
-                )
-
-                score = float(
-                    probabilities[idx]
-                )
-
-                st.write(
-                    f"**{rank}. {gesture}** — "
-                    f"{score * 100:.2f}%"
-                )
-
-                st.progress(
-                    min(max(score, 0.0), 1.0)
-                )
-
-        # ----------------------------------------------------
-        # NO MEDIAPIPE HAND
-        # ----------------------------------------------------
-
-        else:
-
-            # Try LeapGestRecog IR fallback
-            ir_hand = detect_ir_hand(
-                image
-            )
-
-            if ir_hand and ir_model is not None:
-
-                st.success(
-                    "✋ IR-style hand detected!"
-                )
-
-                st.info(
-                    "Using the original "
-                    "LeapGestRecog MobileNetV2 "
-                    "model for this IR-style image."
-                )
-
-                # --------------------------------------------
-                # Prepare IR image
-                # --------------------------------------------
-
-                gray = image.convert("L")
-
-                gray = gray.resize(
-                    IR_IMG_SIZE
-                )
-
-                gray = np.array(
-                    gray,
-                    dtype=np.float32
-                )
-
-                gray = np.expand_dims(
-                    gray,
-                    axis=-1
-                )
-
-                gray = np.repeat(
-                    gray,
-                    3,
-                    axis=-1
-                )
-
-                # MobileNetV2 preprocessing
-                gray = (
-                    gray / 127.5
-                ) - 1.0
-
-                gray = np.expand_dims(
-                    gray,
-                    axis=0
-                )
-
-                with st.spinner(
-                    "Analyzing IR hand gesture..."
-                ):
-
-                    predictions = (
-                        ir_model.predict(
-                            gray,
-                            verbose=0
-                        )[0]
-                    )
-
-                predicted_index = int(
-                    np.argmax(predictions)
-                )
-
-                predicted_class = (
-                    ir_class_names[
-                        predicted_index
-                    ]
-                )
-
-                confidence = float(
-                    predictions[
-                        predicted_index
-                    ]
-                )
-
-                st.success(
-                    f"✋ Predicted Gesture: "
-                    f"**{predicted_class}**"
-                )
-
-                st.metric(
-                    "Confidence",
-                    f"{confidence * 100:.2f}%"
-                )
-
-            else:
-
-                # --------------------------------------------
-                # Not a hand
-                # --------------------------------------------
-
-                st.error(
-                    "❌ This is not a hand."
-                )
-
-                st.warning(
-                    "Please upload a clear hand "
-                    "gesture image."
-                )
 
 
 # ============================================================
@@ -605,52 +457,39 @@ if uploaded_file is not None:
 
 with st.sidebar:
 
-    st.header(
-        "About the Project"
+    st.header("Project Information")
+
+    st.markdown(
+        """
+        **Dataset:** LeapGestRecog
+
+        **Task:** AI/ML Internship — Task 5
+
+        **Gesture Classes:** 10
+
+        **Primary Evaluation Model:** MobileNetV2
+
+        **Official Test Accuracy:** 84.55%
+
+        **Webcam Model:** MediaPipe Landmarks + Random Forest
+
+        **Real-Time Detection:** Supported
+
+        **Motion Detection:** Supported
+
+        **Prediction Smoothing:** Supported
+        """
     )
 
-    st.write(
-        "Hand Gesture Recognition using "
-        "MediaPipe hand landmarks and "
-        "Random Forest classification."
-    )
+    st.markdown("---")
 
-    st.write(
-        "**Dataset:** LeapGestRecog"
-    )
+    st.subheader("Gesture Classes")
 
-    st.write(
-        "**Primary Model:** MobileNetV2"
-    )
+    for gesture in mobilenet_class_names:
+        st.write(f"• {gesture}")
 
-    st.write(
-        "**Official Test Accuracy:** 84.55%"
-    )
-
-    st.write(
-        "**Real-Time Model:** "
-        "MediaPipe + Random Forest"
-    )
-
-    st.write(
-        "**Landmark Test Accuracy:** 100%"
-    )
-
-    st.write(
-        "**Static Gestures:** 8"
-    )
-
-    st.write(
-        "**Final Gesture Classes:** 10"
-    )
-
-    st.write(
-        "**Hand Detection:** MediaPipe"
-    )
-
-    st.divider()
+    st.markdown("---")
 
     st.caption(
-        "Developed as part of "
-        "AI/ML Internship — Task 5"
+        "Hand Gesture Recognition — Task 5"
     )
