@@ -104,57 +104,35 @@ The subject-wise split provides a more meaningful test of generalization to an u
 
 \---
 
-
-
-\## Project Pipeline
-
-
+## Project Pipeline
 
 ```text
-
 Input Image / Webcam Frame
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          v
 MediaPipe Hand Detection
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          v
 21 Hand Landmarks
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          v
 Landmark Normalization
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          v
 Random Forest Classifier
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          v
 Gesture Prediction
-
-&#x20;         |
-
-&#x20;         +------> Motion Detection
-
-&#x20;         |
-
-&#x20;         +------> Prediction Smoothing
-
-&#x20;         |
-
-&#x20;         v
-
+          |
+          +------> Motion Detection
+          |
+          +------> Prediction Smoothing
+          |
+          v
 Final Gesture
+```
+
+
+
+
 
