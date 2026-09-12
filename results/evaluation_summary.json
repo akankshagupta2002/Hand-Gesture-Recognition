@@ -1,0 +1,11 @@
+{
+    "test_images": 2000,
+    "test_loss": 0.5605741143226624,
+    "test_accuracy": 0.796999990940094,
+    "accuracy": 0.797,
+    "weighted_precision": 0.8281365441067698,
+    "weighted_recall": 0.797,
+    "weighted_f1_score": 0.762478669665739,
+    "test_subject": "09",
+    "evaluation_type": "Unseen subject test set"
+}

@@ -1,0 +1,12 @@
+tensorflow==2.21.0
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+pillow
+streamlit
+mediapipe==1.0.1
+opencv-python-headless
+joblib
+protobuf==6.31.1

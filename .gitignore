@@ -1,0 +1,25 @@
+# Virtual environment
+venv312/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local datasets
+dataset/
+rgb_data/
+landmark_data/
+
+# MediaPipe downloaded model
+# Keep this locally if GitHub size is a concern
+# hand_landmarker.task
+
+# Temporary files
+*.tmp
+
+# Streamlit
+.streamlit/
+
+# OS files
+.DS_Store
+Thumbs.db

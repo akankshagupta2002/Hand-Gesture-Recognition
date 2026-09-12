@@ -1,0 +1,11 @@
+sample,image_path,actual_class,predicted_class,confidence,confidence_percent,correct
+1,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\01_palm\frame_09_01_0101.png,01_palm,01_palm,0.9999992847442627,99.99992847442627,True
+2,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\02_l\frame_09_02_0101.png,02_l,02_l,0.9999116659164429,99.99116659164429,True
+3,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\03_fist\frame_09_03_0101.png,03_fist,03_fist,0.9878183603286743,98.78183603286743,True
+4,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\04_fist_moved\frame_09_04_0101.png,04_fist_moved,04_fist_moved,0.7943987250328064,79.43987250328064,True
+5,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\05_thumb\frame_09_05_0101.png,05_thumb,05_thumb,0.7972838878631592,79.72838878631592,True
+6,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\06_index\frame_09_06_0101.png,06_index,06_index,0.9906982779502869,99.06982779502869,True
+7,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\07_ok\frame_09_07_0101.png,07_ok,10_down,0.994861900806427,99.4861900806427,False
+8,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\08_palm_moved\frame_09_08_0101.png,08_palm_moved,09_c,0.5360407829284668,53.60407829284668,False
+9,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\09_c\frame_09_09_0101.png,09_c,09_c,0.9998689889907837,99.98689889907837,True
+10,C:\Users\omaka\.cache\kagglehub\datasets\gti-upm\leapgestrecog\versions\1\leapGestRecog\09\10_down\frame_09_10_0101.png,10_down,10_down,0.9850904941558838,98.50904941558838,True
